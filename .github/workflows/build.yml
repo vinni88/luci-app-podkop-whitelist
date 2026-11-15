@@ -1,4 +1,4 @@
-name: Build OpenWrt APK
+name: Fast Build OpenWrt APK
 
 on:
   workflow_dispatch:
@@ -12,17 +12,48 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Unpack sources
-        run: unzip -o luci-app-podkop-whitelist-src.zip
+      - name: Prepare files
+        run: |
+          unzip -o luci-app-podkop-whitelist-src.zip -d src
+          FILES_DIR=$(find src -type d -name "files" | head -n 1)
+          mkdir -p pkg_root
+          if [ -n "$FILES_DIR" ]; then
+            cp -r "$FILES_DIR"/. pkg_root/
+          else
+            cp -r src/. pkg_root/
+            rm -f pkg_root/Makefile
+          fi
+          find pkg_root -type d -exec chmod 755 {} +
+          find pkg_root -type f -exec chmod 644 {} +
+          find pkg_root -type f -exec sed -i 's/\r$//' {} +
+          [ -d pkg_root/etc/init.d ] && chmod -R 755 pkg_root/etc/init.d
+          [ -d pkg_root/usr/bin ] && chmod -R 755 pkg_root/usr/bin
+          [ -d pkg_root/usr/sbin ] && chmod -R 755 pkg_root/usr/sbin
+          find pkg_root -type f -name "*.sh" -exec chmod 755 {} +
 
-      - name: Build OpenWrt 25.12 package
-        uses: openwrt/gh-action-sdk@main
-        with:
-          arch: x86-64
-          branch: openwrt-25.12
+          cat <<-'EOF' > postinst.sh
+          #!/bin/sh
+          rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/*
+          exit 0
+          EOF
+          chmod 755 postinst.sh
+
+      - name: Pack APK
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work alpine:edge apk mkpkg \
+            --info "name:luci-app-podkop-whitelist" \
+            --info "version:1.0.0-r1" \
+            --info "description:LuCI interface for podkop whitelist" \
+            --info "arch:noarch" \
+            --info "license:GPL-2.0" \
+            --info "depends:luci-base" \
+            --script "post-install:postinst.sh" \
+            --script "post-upgrade:postinst.sh" \
+            --files pkg_root \
+            --output luci-app-podkop-whitelist-1.0.0-r1.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-podkop-whitelist-apk
-          path: '**/*.apk'
+          path: '*.apk'
