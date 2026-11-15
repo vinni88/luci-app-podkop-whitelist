@@ -1,0 +1,28 @@
+name: Build OpenWrt APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Unpack sources
+        run: unzip -o luci-app-podkop-whitelist-src.zip
+
+      - name: Build OpenWrt 25.12 package
+        uses: openwrt/gh-action-sdk@main
+        with:
+          arch: x86-64
+          branch: openwrt-25.12
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-app-podkop-whitelist-apk
+          path: '**/*.apk'
